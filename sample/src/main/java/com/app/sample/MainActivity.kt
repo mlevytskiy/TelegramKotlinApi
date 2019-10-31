@@ -7,12 +7,18 @@ import android.view.View
 import android.widget.EditText
 import android.widget.Toast
 import com.library.telegramkotlinapi.SimpleTelegramApi
+import com.library.telegramkotlinapi.SimpleTelegramApi.AuthWithPhoneResult.*
+import com.library.telegramkotlinapi.TelegramUser
 import com.library.telegramkotlinapi.handler.AuthorizationResponseHandler
 import com.library.telegramkotlinapi.handler.CommonHandler
+import kotlinx.coroutines.*
 import org.drinkless.td.libcore.telegram.Client
 import org.drinkless.td.libcore.telegram.Client.ExceptionHandler
 
 class MainActivity : AppCompatActivity() {
+
+    private val supervisor = SupervisorJob()
+    private var scope = CoroutineScope(Dispatchers.IO + supervisor)
 
     private var client: Client? = null
     private var editText: EditText? = null
@@ -101,22 +107,41 @@ class MainActivity : AppCompatActivity() {
      */
 
     fun onClickSendPhone(view: View) {
-        SimpleTelegramApi().client(client!!)
-            .authWithPhone(editText?.text.toString(),
-                { showToast("onClickSendPhone success") },
-                { code->showToast( "onClickSendPhone failed code=$code") },
-                { showToast("Too many requests") } )
-    }
+        startBgJob {
+            val result = SimpleTelegramApi().client(client!!).authWithPhone(editText?.text.toString())
+            when (result) {
+                SUCCESS -> {
+                    showToast("onClickSendPhone success")
+                }
+                ERROR -> {
+                    showToast( "onClickSendPhone error")
+                }
+                ERROR_TOO_MANY_REQUESTS -> {
+                    showToast("Too many requests") }
+                }
+            }
+        }
 
     fun onClickSendCode(view: View) {
-        SimpleTelegramApi().client(client!!)
-            .checkVerificationCode(codeEditText?.text.toString(),
-                { showToast("onClickSendCode success") },
-                { code->showToast( "onClickSendCode failed code=$code") })
+        startBgJob {
+            val api = SimpleTelegramApi().client(client!!)
+            val isSuccess = api.checkVerificationCode(codeEditText?.text.toString())
+            var user: TelegramUser? = null
+            if (isSuccess) {
+                user = api.getUserInfo()
+            }
+            showToast(if (isSuccess && user!= null) "onClickSendCode success \n $user" else "onClickSendCode failed")
+        }
     }
 
     private fun showToast(message: String) {
         runOnUiThread({Toast.makeText(this, message, Toast.LENGTH_LONG).show()})
+    }
+
+    fun startBgJob(block: suspend CoroutineScope.() -> Unit): Job {
+        return scope.launch(block = {
+            block.invoke(this)
+        })
     }
 
 
